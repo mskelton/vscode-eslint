@@ -23,6 +23,39 @@ This section describes major releases and their improvements. For a detailed lis
 
 From version 2.2.3 on forward odd major, minor or patch version numbers indicate an insider or pre-release. So versions `2.2.3`, `2.2.5`, `2.3.1` and `3.0.0` will all be pre-release versions. `2.2.10`, `2.4.10` and `4.0.0` will all be regular release versions.
 
+### Version 2.4.0 (same as 2.3.5 - Pre-release)
+
+- added settings options to control the time budget for validation and fix on save before a
+  warning or error is raised. The settings are `eslint.timeBudget.onValidation` and `eslint.timeBudget.onFixes`
+- make server `untitled` agnostic
+- the extension uses now VS Code's language status indicator
+- the language status indicator now informs about long linting or fix on save times.
+- the setting `eslint.alwaysShowStatus` got removed since the status is now shown as a language status indicator.
+- support for flat config files
+- support for single problem underline.
+- various [bug fixes](https://github.com/microsoft/vscode-eslint/issues?q=is%3Aclosed+milestone%3A2.4.0)
+
+### Version 2.3.5 - Pre-release
+
+- added settings options to control the time budget for validation and fix on save before a
+  warning or error is raised. The settings are `eslint.timeBudget.onValidation` and `eslint.timeBudget.onFixes`
+
+### Version 2.3.3 - Pre-release
+
+- make server `untitled` agnostic
+
+### Version 2.3.1 - Pre-release (internal only)
+
+- the extension uses now VS Code's language status indicator
+- the language status indicator now informs about long linting or fix on save times.
+- the setting `eslint.alwaysShowStatus` got removed since the status is now shown as a language status indicator.
+
+### Version 2.3.0 - Pre-release
+
+- support for flat config files
+- support for single problem underline.
+- various [bug fixes](https://github.com/microsoft/vscode-eslint/issues?q=is%3Aclosed+milestone%3A2.4.0)
+
 ### Version 2.2.6 (same as 2.2.5 Pre-release)
 
 - added support for validating single notebook document cells if the language is supported by ESLint
@@ -172,7 +205,7 @@ This extension contributes the following variables to the [settings](https://cod
 - `eslint.run` - run the linter `onSave` or `onType`, default is `onType`.
 - `eslint.quiet` - ignore warnings.
 - `eslint.runtime` - use this setting to set the path of the node runtime to run ESLint under. [Use `"node"`](https://github.com/microsoft/vscode-eslint/issues/1233#issuecomment-815521280) if you want to use your default system version of node.
-- `eslint.runtime.execArgv` - use this setting to pass additional arguments to the node runtime like `--max_old_space_size=4096`
+- `eslint.execArgv` - use this setting to pass additional arguments to the node runtime like `--max_old_space_size=4096`
 - `eslint.nodeEnv` - use this setting if an ESLint plugin or configuration needs `process.env.NODE_ENV` to be defined.
 - `eslint.nodePath` - use this setting if an installed ESLint package can't be detected, for example `/myGlobalNodePackages/node_modules`.
 - `eslint.probe` - an array for language identifiers for which the ESLint extension should be activated and should try to validate the file. If validation fails for probed languages the extension says silent. Defaults to `["javascript", "javascriptreact", "typescript", "typescriptreact", "html", "vue", "markdown"]`.
@@ -284,6 +317,8 @@ This extension contributes the following variables to the [settings](https://cod
   The old `eslint.autoFixOnSave` setting is now deprecated and can safely be removed. Please also note that if you use ESLint as your default formatter you should turn off `editor.formatOnSave` when you have turned on `editor.codeActionsOnSave`. Otherwise you file gets fixed twice which in unnecessary.
 - `eslint.problems.shortenToSingleLine`: (@since 2.3.0) - Shortens the text spans of underlined problems to their first related line.
 - `eslint.experimental.useFlatConfig`: (@since 2.3.0) - Enables support of experimental Flat Config (aka eslint.config.js, supported by ESLint version 8.21 or later)
+- `eslint.timeBudget.onValidation` (@since 2.3.5) - controls the time budget that can be used for validation before a warning or an error is shown.
+- `eslint.timeBudget.onFixes` (@since 2.3.5) - controls the time budget that can be used to compute fixes before a warning or an error is shown.
 
 ## Settings Migration
 

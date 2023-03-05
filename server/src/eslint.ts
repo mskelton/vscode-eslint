@@ -15,7 +15,7 @@ import {
 } from 'vscode-languageserver/node';
 import { URI } from 'vscode-uri';
 
-import { ProbeFailedParams, ProbeFailedRequest, NoESLintLibraryRequest, Status, ShowOutputChannel, NoConfigRequest } from './shared/customMessages';
+import { ProbeFailedParams, ProbeFailedRequest, NoESLintLibraryRequest, Status, NoConfigRequest } from './shared/customMessages';
 import { ConfigurationSettings, DirectoryItem, ESLintSeverity, ModeEnum, ModeItem, PackageManagers, RuleCustomization, RuleSeverity, Validate } from './shared/settings';
 
 import * as Is from './is';
@@ -123,8 +123,19 @@ export type RuleMetaData = {
 };
 
 export namespace RuleMetaData {
+	// For unused eslint-disable comments, ESLint does not include a rule ID
+	// nor any other metadata (although they do provide a fix). In order to
+	// provide code actions for these, we create a fake rule ID and metadata.
+	export const unusedDisableDirectiveId = 'unused-disable-directive';
+	const unusedDisableDirectiveMeta: RuleMetaData = {
+		docs: {
+			url: 'https://eslint.org/docs/latest/use/configure/rules#report-unused-eslint-disable-comments'
+		},
+		type: 'directive'
+	};
+
 	const handled: Set<string> = new Set();
-	const ruleId2Meta: Map<string, RuleMetaData> = new Map();
+	const ruleId2Meta: Map<string, RuleMetaData> = new Map([[unusedDisableDirectiveId, unusedDisableDirectiveMeta]]);
 
 	export function capture(eslint: ESLintClass, reports: ESLintDocumentReport[]): void {
 		let rulesMetaData: Record<string, RuleMetaData> | undefined;
@@ -154,6 +165,7 @@ export namespace RuleMetaData {
 	export function clear(): void {
 		handled.clear();
 		ruleId2Meta.clear();
+		ruleId2Meta.set(unusedDisableDirectiveId, unusedDisableDirectiveMeta);
 	}
 
 	export function getUrl(ruleId: string): string | undefined {
@@ -166,6 +178,10 @@ export namespace RuleMetaData {
 
 	export function hasRuleId(ruleId: string): boolean {
 		return ruleId2Meta.has(ruleId);
+	}
+
+	export function isUnusedDisableDirectiveProblem(problem: ESLintProblem): boolean {
+		return problem.ruleId === null && problem.message.startsWith('Unused eslint-disable directive');
 	}
 }
 
@@ -506,7 +522,7 @@ export namespace SaveRuleConfigs {
 }
 
 /**
- * Manages rule serverity overrides done using VS Code settings.
+ * Manages rule severity overrides done using VS Code settings.
  */
 export namespace RuleSeverities {
 
@@ -547,7 +563,7 @@ export namespace RuleSeverities {
 
 
 /**
- * Creates LSP Diagnostis and captures code action information.
+ * Creates LSP Diagnostics and captures code action information.
  */
 namespace Diagnostics {
 
@@ -871,7 +887,7 @@ export namespace ESLint {
 						if (lib === undefined) {
 							settings.validate = Validate.off;
 							if (!settings.silent) {
-								connection.console.error(`Failed to load eslint library from ${libraryPath}. If you are using ESLint v8.21 or earlier, try upgrading it. For newer versions, try disabling the 'experimentalUseFlatConfig' setting. See the output panel for more information.`);
+								connection.console.error(`Failed to load eslint library from ${libraryPath}. If you are using ESLint v8.21 or earlier, try upgrading it. For newer versions, try disabling the 'eslint.experimental.useFlatConfig' setting. See the output panel for more information.`);
 							}
 						} else if (lib.FlatESLint === undefined) {
 							settings.validate = Validate.off;
@@ -977,25 +993,28 @@ export namespace ESLint {
 						void connection.sendRequest(ProbeFailedRequest.type, params);
 					}
 				}
-				if (settings.format && settings.validate === Validate.on && TextDocumentSettings.hasLibrary(settings)) {
-					const Uri = URI.parse(uri);
-					const isFile = Uri.scheme === 'file';
-					let pattern: string = isFile
-						? Uri.fsPath.replace(/\\/g, '/')
-						: Uri.fsPath;
-					pattern = pattern.replace(/[\[\]\{\}]/g, '?');
+				if (settings.validate === Validate.on) {
+					settings.silent = false;
+					if (settings.format && TextDocumentSettings.hasLibrary(settings)) {
+						const Uri = URI.parse(uri);
+						const isFile = Uri.scheme === 'file';
+						let pattern: string = isFile
+							? Uri.fsPath.replace(/\\/g, '/')
+							: Uri.fsPath;
+						pattern = pattern.replace(/[\[\]\{\}]/g, '?');
 
-					const filter: DocumentFilter = { scheme: Uri.scheme, pattern: pattern };
-					const options: DocumentFormattingRegistrationOptions = { documentSelector: [filter] };
-					if (!isFile) {
-						formatterRegistrations.set(uri, connection.client.register(DocumentFormattingRequest.type, options));
-					} else {
-						const filePath = inferFilePath(uri)!;
-						await ESLint.withClass(async (eslintClass) => {
-							if (!await eslintClass.isPathIgnored(filePath)) {
-								formatterRegistrations.set(uri, connection.client.register(DocumentFormattingRequest.type, options));
-							}
-						}, settings);
+						const filter: DocumentFilter = { scheme: Uri.scheme, pattern: pattern };
+						const options: DocumentFormattingRegistrationOptions = { documentSelector: [filter] };
+						if (!isFile) {
+							formatterRegistrations.set(uri, connection.client.register(DocumentFormattingRequest.type, options));
+						} else {
+							const filePath = inferFilePath(uri)!;
+							await ESLint.withClass(async (eslintClass) => {
+								if (!await eslintClass.isPathIgnored(filePath)) {
+									formatterRegistrations.set(uri, connection.client.register(DocumentFormattingRequest.type, options));
+								}
+							}, settings);
+						}
 					}
 				}
 				return settings;
@@ -1031,7 +1050,7 @@ export namespace ESLint {
 			if (settings.workingDirectory) {
 			// A lot of libs are sensitive to drive letter casing and assume a
 			// capital drive letter. Make sure we support that correctly.
-				const newCWD = normalizeDriveLetter(settings.workingDirectory.directory);
+				const newCWD = normalizeWorkingDirectory(settings.workingDirectory.directory);
 				newOptions.cwd = newCWD;
 				if (settings.workingDirectory['!cwd'] !== true && fs.existsSync(newCWD)) {
 					process.chdir(newCWD);
@@ -1049,12 +1068,22 @@ export namespace ESLint {
 		}
 	}
 
+	function normalizeWorkingDirectory(value: string): string {
+		const result = normalizeDriveLetter(value);
+		if (result.length === 0) {
+			return result;
+		}
+		return result[result.length - 1] === path.sep
+			? result.substring(0, result.length - 1)
+			: result;
+	}
+
 	export function getFilePath(document: TextDocument | undefined, settings: TextDocumentSettings): string | undefined {
 		if (document === undefined) {
 			return undefined;
 		}
 		const uri = URI.parse(document.uri);
-		if (uri.scheme === 'untitled') {
+		if (uri.scheme !== 'file') {
 			if (settings.workspaceFolder !== undefined) {
 				const ext = LanguageDefaults.getExtension(document.languageId);
 				const workspacePath = inferFilePath(settings.workspaceFolder.uri);
@@ -1068,7 +1097,7 @@ export namespace ESLint {
 		}
 	}
 
-	const validFixTypes = new Set<string>(['problem', 'suggestion', 'layout']);
+	const validFixTypes = new Set<string>(['problem', 'suggestion', 'layout', 'directive']);
 	export async function validate(document: TextDocument, settings: TextDocumentSettings & { library: ESLintModule }): Promise<Diagnostic[]> {
 		const newOptions: CLIOptions = Object.assign(Object.create(null), settings.options);
 		let fixTypes: Set<string> | undefined = undefined;
@@ -1108,6 +1137,10 @@ export namespace ESLint {
 									CodeActions.record(document, diagnostic, problem);
 								}
 							} else {
+								if (RuleMetaData.isUnusedDisableDirectiveProblem(problem)) {
+									problem.ruleId = RuleMetaData.unusedDisableDirectiveId;
+								}
+
 								CodeActions.record(document, diagnostic, problem);
 							}
 						}
@@ -1213,7 +1246,7 @@ export namespace ESLint {
 
 		const noConfigReported: Map<string, ESLintModule> = new Map<string, ESLintModule>();
 
-		export function clearNoConfigRepoerted(): void {
+		export function clearNoConfigReported(): void {
 			noConfigReported.clear();
 		}
 
@@ -1325,29 +1358,12 @@ export namespace ESLint {
 			return undefined;
 		}
 
-		const ignoredErrors: Set<string> = new Set();
 		function showErrorMessage(error: any, document: TextDocument): Status {
-			const errorMessage = `ESLint: ${getMessage(error, document)}. Please see the 'ESLint' output channel for details.`;
-			const actions = [
-				{ title: 'Open Output', id: 1},
-				{ title: 'Ignore for this Session', id: 2}
-			];
-			if (!ignoredErrors.has(errorMessage)) {
-				void connection.window.showErrorMessage(errorMessage, ...actions).then((value) => {
-					if (value !== undefined) {
-						if (value.id === 1) {
-							void connection.sendNotification(ShowOutputChannel.type);
-						} else if (value.id === 2) {
-							ignoredErrors.add(errorMessage);
-						}
-					}
-				});
-			} else {
-				connection.console.error(errorMessage);
-			}
 			if (Is.string(error.stack)) {
-				connection.console.error('ESLint stack trace:');
+				connection.console.error('An unexpected error occurred:');
 				connection.console.error(error.stack);
+			} else {
+				connection.console.error(`An unexpected error occurred: ${getMessage(error, document)}.`);
 			}
 			return Status.error;
 		}
